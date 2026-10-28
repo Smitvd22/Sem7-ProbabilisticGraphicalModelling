@@ -1,0 +1,234 @@
+================================================================================
+PGM PRACTICAL 7: HIDDEN MARKOV MODELS (FORWARD-BACKWARD & VITERBI)
+STUDENT ID: U23AI118 | CASINO MODEL (DURBIN ET AL., 1998)
+================================================================================
+
+================================================================================
+PROBLEM STATEMENT 1: THE MODEL AND THE GENERATIVE PROCESS
+================================================================================
+
+--- Task a: Model Representation and Row-Sum Verification ---
+Initial distribution pi:           {'F': 0.5, 'L': 0.5} => Sum = 1.0
+Transition matrix row 'F':       {'F': 0.95, 'L': 0.05} => Sum = 1.0
+Transition matrix row 'L':       {'F': 0.1, 'L': 0.9} => Sum = 1.0
+Emission matrix row 'F':        {1:0.167, 2:0.167, 3:0.167, 4:0.167, 5:0.167, 6:0.167} => Sum = 1.0000
+Emission matrix row 'L':        {1:0.100, 2:0.100, 3:0.100, 4:0.100, 5:0.100, 6:0.500} => Sum = 1.0000
+>> VERIFICATION PASSED: Every row of each distribution sums to 1.0.
+
+--- Task b: Graphical Model Drawing & Conditional Independences ---
+
++-------------------------------------------------------------------------------+
+| Task b: Hidden Markov Model as a Bayesian Network (T = 4)                     |
++-------------------------------------------------------------------------------+
+       ( X_1 ) ---------> ( X_2 ) ---------> ( X_3 ) ---------> ( X_4 )   [Hidden States]
+          |                  |                  |                  |
+          v                  v                  v                  v
+       [ Y_1 ]            [ Y_2 ]            [ Y_3 ]            [ Y_4 ]   [Observations]
+
+Conditional Independences:
+1. P(X_t | X_{1:t-1}) = P(X_t | X_{t-1}) (First-order Markov property).
+2. P(Y_t | X_{1:T}, Y_{\t}) = P(Y_t | X_t) (Emission independence).
+3. The hidden state X_t d-separates past {X_{1:t-1}, Y_{1:t-1}} from future {X_{t+1:T}, Y_{t+1:T}}.
+
+--- Task c: Simulation and Stationary Distribution ---
+Theoretical stationary probability: P(Loaded) = 1/3 ~ 0.3333 (33.33%)
+                                   P(Fair)   = 2/3 ~ 0.6667 (66.67%)
+Generated 300 rolls:
+Loaded die in use: 91/300 positions (30.33%)
+>> Empirical proportion (0.3033) closely matches stationary (0.3333).
+
+--- Task d: Analysis of Sixes in Supplied 30-Roll Sequence ---
+Supplied 30 rolls: [6, 1, 5, 2, 4, 1, 3, 6, 4, 2, 1, 2, 6, 4, 1, 1, 6, 2, 5, 6, 5, 6, 2, 6, 6, 6, 6, 6, 5, 6]
+Total rolls:             30
+Observed count of sixes: 12 (40.0%)
+Expected under fair die: 5.0 (16.7%)
+Excess sixes:            7.0
+>> Can this difference alone locate the loaded stretch?
+   ANSWER: NO. A global count shows evidence of loading across the sequence,
+   but cannot determine WHEN the die was swapped or WHERE loaded stretches begin/end.
+   Locating the transition boundaries requires sequential graphical inference.
+
+================================================================================
+PROBLEM STATEMENT 2: THE FORWARD ALGORITHM
+================================================================================
+
+--- Tasks e & f: Forward Algorithm Implementation & P(observations) ---
+P(observations) for 30 rolls (direct forward): 4.3150708630900665e-22
+log P(observations):                          -49.194758298968
+
+--- Task g: Verification on Short Sequence (T = 5) ---
+Rolls: [6, 1, 5, 2, 4]
+Explicit path summation (2^5 = 32 paths): P = 1.091196051954732677e-04
+Forward algorithm recursion:              P = 1.091196051954732135e-04
+Absolute difference:                      5.421010862427522170e-20
+>> VERIFICATION PASSED: Agrees to machine precision!
+
+--- Task h: Operation Counts & Growth Rate Comparison ---
+T      | Explicit Enumeration (2*T * 2^T - 1)   | Forward Recursion (8T - 5)    
+--------------------------------------------------------------------------------
+5      | 319 ops                                | 35                            
+20     | 41,943,039 ops                         | 155                           
+300    | 1.222e+93 ops                          | 2,395                         
+
+Growth rates:
+  - Explicit path enumeration: O(T * K^T)  [Exponential in sequence length T]
+  - Forward recursion:         O(K^2 * T)  [Linear in sequence length T]
+
+================================================================================
+PROBLEM STATEMENT 3: NUMERICAL UNDERFLOW
+================================================================================
+
+--- Task i: Direct Forward Underflow Experiment ---
+Length T   | P(observations)    | Smallest alpha     | First Underflow to 0.0
+--------------------------------------------------------------------------------
+50         | 1.5451e-39         | 5.7224e-40         | None (Did not underflow)
+100        | 6.7388e-75         | 1.8812e-75         | None (Did not underflow)
+200        | 2.7735e-151        | 1.1155e-151        | None (Did not underflow)
+300        | 1.5707e-228        | 2.8358e-229        | None (Did not underflow)
+400        | 4.9675e-300        | 1.0862e-300        | None (Did not underflow)
+500        | 0.0000e+00         | 4.9407e-324        | At position 431
+800        | 0.0000e+00         | 4.9407e-324        | At position 430
+>> Result: Direct forward underflows to exactly 0.0 between T = 400 and T = 500.
+
+--- Tasks j & k: Log-Space and Scaling Remedies ---
+Direct log P(obs):    -49.194758298968
+Log-space log P(obs): -49.194758298968
+Scaled log P(obs):    -49.194758298968
+>> Agreement: Direct, Log-Space, and Scaled agree to 12 decimal places!
+
+--- Task l: Remedy Trade-Offs ---
+1. Advantage of Log-Space: Completely eliminates scale factor arrays and division-by-zero risks.
+2. Advantage of Scaling: Avoids expensive transcendental log/exp calls; scaled forward alpha_hat
+   directly equals the causally filtered state probabilities P(X_t = s | Y_{1:t}).
+3. Backward Pass Convenience: SCALING is more convenient because using the same scale factors c_t
+   makes alpha_hat * beta_hat directly equal the smoothed posterior gamma without extra normalization.
+
+================================================================================
+PROBLEM STATEMENT 4: THE BACKWARD PASS, FILTERING AND SMOOTHING
+================================================================================
+
+--- Tasks m & n: Backward Pass & Agreement on P(observations) ---
+Forward P(obs):            4.3150708630900665e-22
+Backward P(obs):           4.3150708630900703e-22
+Absolute difference:       3.7615819226313200e-37
+Max intermediate diff:     3.7615819226313200e-37
+>> VERIFICATION PASSED: Forward and backward passes agree perfectly!
+
+--- Tasks o, p, q: Filtering vs Smoothing Comparison ---
+Pos (1-idx) | Pos (0-idx) | Roll  | Filter P(L)  | Smooth P(L)  | Difference | Visual (Smooth L)
+--------------------------------------------------------------------------------
+1           | 0           | 6     | 0.7500       | 0.4432       | 0.3068     | [#########-----------]
+2           | 1           | 1     | 0.5690       | 0.2739       | 0.2950     | [#####---------------]
+3           | 2           | 5     | 0.4071       | 0.1814       | 0.2257     | [####----------------]
+4           | 3           | 2     | 0.2823       | 0.1329       | 0.1494     | [###-----------------]
+5           | 4           | 4     | 0.1968       | 0.1114       | 0.0854     | [##------------------]
+6           | 5           | 1     | 0.1428       | 0.1091       | 0.0337     | [##------------------]
+7           | 6           | 3     | 0.1104       | 0.1254       | 0.0150     | [###-----------------]
+8           | 7           | 6     | 0.3351       | 0.1660       | 0.1691     | [###-----------------]
+9           | 8           | 4     | 0.2320       | 0.1360       | 0.0960     | [###-----------------]
+10          | 9           | 2     | 0.1646       | 0.1293       | 0.0353     | [###-----------------]
+11          | 10          | 1     | 0.1233       | 0.1434       | 0.0201     | [###-----------------]
+12          | 11          | 2     | 0.0990       | 0.1834       | 0.0844     | [####----------------]
+13          | 12          | 6     | 0.3173       | 0.2635       | 0.0538     | [#####---------------]
+14          | 13          | 4     | 0.2200       | 0.2561       | 0.0362     | [#####---------------]
+15          | 14          | 1     | 0.1571       | 0.2818       | 0.1247     | [######--------------]
+16          | 15          | 1     | 0.1188       | 0.3496       | 0.2307     | [#######-------------]
+17          | 16          | 6     | 0.3479       | 0.4834       | 0.1354     | [##########----------]
+18          | 17          | 2     | 0.2407       | 0.5046       | 0.2639     | [##########----------]
+19          | 18          | 5     | 0.1701       | 0.5770       | 0.4069     | [############--------]
+20          | 19          | 6     | 0.4202       | 0.7260       | 0.3058     | [###############-----]
+21          | 20          | 5     | 0.2919       | 0.7636       | 0.4718     | [###############-----]
+22          | 21          | 6     | 0.5602       | 0.8599       | 0.2997     | [#################---]
+23          | 22          | 2     | 0.3999       | 0.8830       | 0.4831     | [##################--]
+24          | 23          | 6     | 0.6572       | 0.9533       | 0.2961     | [###################-]
+25          | 24          | 6     | 0.8235       | 0.9769       | 0.1534     | [####################]
+26          | 25          | 6     | 0.9000       | 0.9829       | 0.0829     | [####################]
+27          | 26          | 6     | 0.9297       | 0.9783       | 0.0487     | [####################]
+28          | 27          | 6     | 0.9404       | 0.9577       | 0.0174     | [###################-]
+29          | 28          | 5     | 0.7718       | 0.8959       | 0.1241     | [##################--]
+30          | 29          | 6     | 0.8781       | 0.8781       | 0.0000     | [##################--]
+
+Task q: Maximum Difference Position:
+  - 1-indexed position: 23 (0-indexed position: 22)
+  - Roll at this position: 2
+  - Filtered P(Loaded):    0.3999
+  - Smoothed P(Loaded):    0.8830
+  - Difference:            0.4831
+>> Explanation:
+   The filter sees roll 23 is a '2', making it downgrade P(Loaded) to ~0.40.
+   The smoother has retrospective hindsight: rolls 24-28 are FIVE CONSECUTIVE SIXES.
+   Because transitions are rare, the smoother knows the dealer was already in Loaded
+   at roll 23 and merely rolled a 2 by chance (which occurs 50% of the time for loaded).
+
+================================================================================
+PROBLEM STATEMENT 5: THE VITERBI ALGORITHM
+================================================================================
+
+--- Tasks r, s, t: Viterbi Recursion & Path Recovery ---
+Viterbi Optimal Hidden Path: FFFFFFFFFFFFFFFFFFFLLLLLLLLLLL
+Breakdown (1-indexed):       Positions 1 to 19 = 'F' (19 rolls)
+                             Positions 20 to 30 = 'L' (11 rolls)
+Log probability of path:     -52.162126548463
+Joint probability:           2.2196079704437868e-23
+
+--- Task u: Viterbi Accuracy Across 10 Generated Sequences (T = 300) ---
+Run    | Recovered Matches    | Accuracy (%)   
+--------------------------------------------------
+1      | 239   / 300          | 79.67%
+2      | 218   / 300          | 72.67%
+3      | 241   / 300          | 80.33%
+4      | 214   / 300          | 71.33%
+5      | 248   / 300          | 82.67%
+6      | 227   / 300          | 75.67%
+7      | 240   / 300          | 80.00%
+8      | 192   / 300          | 64.00%
+9      | 221   / 300          | 73.67%
+10     | 226   / 300          | 75.33%
+--------------------------------------------------
+Mean Viterbi Recovery Accuracy: 75.53%
+
+================================================================================
+PROBLEM STATEMENT 6: VITERBI AGAINST POSTERIOR DECODING
+================================================================================
+
+--- Task v: Posterior Decoding vs Viterbi on 30-Roll Sequence ---
+Viterbi Decoding:   FFFFFFFFFFFFFFFFFFFLLLLLLLLLLL
+Posterior Decoding: FFFFFFFFFFFFFFFFFLLLLLLLLLLLLL
+Total Disagreeing Positions: 2
+
+Disagreement details:
+  * Pos 1-idx 18 (0-idx 17): Roll=2 | Viterbi=F | Posterior=L | Smooth P(L)=0.5046
+  * Pos 1-idx 19 (0-idx 18): Roll=5 | Viterbi=F | Posterior=L | Smooth P(L)=0.5770
+
+--- Task w: Comparison Simulation Across 10 Runs (T = 300) ---
+Run    | Viterbi Accuracy   | Posterior Accuracy   | Disagreements (out of 300)
+---------------------------------------------------------------------------
+1      | 79.67            % | 83.33              % | 15
+2      | 72.67            % | 83.67              % | 35
+3      | 80.33            % | 83.00              % | 38
+4      | 71.33            % | 81.00              % | 61
+5      | 82.67            % | 86.33              % | 45
+6      | 75.67            % | 79.00              % | 32
+7      | 80.00            % | 86.67              % | 36
+8      | 64.00            % | 72.67              % | 38
+9      | 73.67            % | 67.00              % | 58
+10     | 75.33            % | 78.67              % | 38
+---------------------------------------------------------------------------
+Mean Viterbi Accuracy:    75.53%
+Mean Posterior Accuracy:  80.13%
+Mean Disagreements:       39.6 positions (13.20%)
+
+--- Task x: Theoretical Comparison & Impossible Sequence Construction ---
+1. Optimisation Objective Difference:
+   - Posterior decoding maximises the expected number of individual correct states (pointwise error).
+   - Viterbi decoding maximises the joint trajectory probability of the entire chain.
+2. Why Posterior Decoding Can Return a Sequence with Probability Zero:
+   - Suppose transitions S_1 -> S_1 and S_2 -> S_2 have probability EXACTLY 0.0.
+   - If independent marginals at t=1 and t=2 both favour S_1 (e.g. P=0.51),
+     posterior decoding outputs (S_1, S_1).
+   - But A_{S_1, S_1} = 0, so P((S_1, S_1), Y) = 0.0 (an impossible physical state path!).
+   - Viterbi enforces global transition consistency and will never choose an impossible path.
+
+================================================================================
+ALL PROBLEM STATEMENTS AND TASKS SUCCESSFULLY COMPLETED!
+================================================================================
